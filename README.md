@@ -18,7 +18,7 @@ python -m http.server 8000
 Open `http://localhost:8000` in your browser.
 
 ## Deployment to Vercel
-1. Push this repository to GitHub: `https://github.com/mushayapokuvakat-ai/AFRICA_UNIVERSITY_STUDENT_RECOMMENDATION_FRONT`
+1. Push this repository to GitHub: `https://github.com/mushayapokuvakat-ai/AURECO_FRONT`
 2. In Vercel, import the repository as a new project.
 3. Framework Preset: **Other** (Static HTML/JS/CSS).
 4. Root Directory: `./`
