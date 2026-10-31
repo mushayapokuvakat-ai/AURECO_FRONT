@@ -2,7 +2,7 @@
 (function () {
   var isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
   // Point to local development backend or Render production deployment
-  var defaultBase = isLocal ? 'http://localhost:5000' : 'https://africa-university-backend.onrender.com';
+  var defaultBase = isLocal ? 'http://localhost:5000' : 'https://aureco-back.onrender.com';
 
   window.AU_CONFIG = {
     // true  = use production backend through js/api.js
