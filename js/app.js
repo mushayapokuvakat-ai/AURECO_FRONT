@@ -415,8 +415,10 @@ submits.code=()=>{
   if(!rec)issues.push("This school ID isn't in the school records.");
   else if(rec.email.toLowerCase()!==d.email.toLowerCase())issues.push(`Records list ${rec.email}, but they entered ${d.email}.`);
   S.users=S.users.filter(u=>!(u.schoolId===d.id&&['rejected','correction'].includes(u.status)));
-  S.users.push({id:uid('u'),role:'student',name:rec?rec.name:d.email.split('@')[0],schoolId:d.id,email:d.email,phone:d.phone,password:d.pw,year:rec?rec.year:1,programme:rec?rec.programme:'',status:'pending',overall:null,gpas:[],bio:'',skills:[],linkedin:'',github:'',photo:null,signup:{match:!issues.length,issues,at:Date.now()}});
-  addLog((rec?rec.name:d.id)+' signed up');save();ui.su={stage:'done',match:!issues.length};render();
+  S.users.push({id:uid('u'),role:'student',name:rec?rec.name:d.email.split('@')[0],schoolId:d.id,email:d.email,phone:d.phone,password:d.pw,year:rec?rec.year:1,programme:rec?rec.programme:'',status:'pending',overall:rec&&rec.overall!=null?rec.overall:null,gpas:rec&&rec.gpas?clone(rec.gpas):[],bio:'',skills:[],linkedin:'',github:'',photo:null,signup:{match:!issues.length,issues,at:Date.now()}});
+  addLog((rec?rec.name:d.id)+' signed up');save();
+  if(AU_CONFIG.USE_BACKEND && AuAPI.flush) AuAPI.flush();
+  ui.su={stage:'done',match:!issues.length};render();
 };
 
 /* ---------- events ---------- */
@@ -902,7 +904,7 @@ function peopleList(){
   const q=fv('pp.q').trim().toLowerCase(),rf=fv('pp.role','all'),sf=fv('pp.status','all'),u=me();
   const m=S.users.filter(x=>['active','deactivated'].includes(x.status)).filter(x=>rf==='all'||x.role===rf||x.title===rf).filter(x=>sf==='all'||x.status===sf).filter(x=>!q||[x.name,x.email,x.schoolId||''].some(v=>v.toLowerCase().includes(q)));
   if(!m.length)return `<div class="empty">No one matches. Try a different name, email or school ID, or clear the filters.</div>`;
-  return `<div class="list">${m.map(x=>`<div class="item"><div class="row" style="flex-wrap:nowrap">${avatar(x,44)}<div><b>${esc(x.name)}</b><div class="muted small">${esc(roleText(x))}</div></div></div><div class="row">${x.status==='active'?'<span class="chip ok">✓ Active</span>':'<span class="chip mute">Deactivated</span>'}${x.id===u.id?'':x.status==='active'?`<button class="btn sm" data-a="deact" data-id="${x.id}">Deactivate</button>`:`<button class="btn sm" data-a="react" data-id="${x.id}">Reactivate</button>`}</div></div>`).join('')}</div>`}
+  return `<div class="list">${m.map(x=>`<div class="item"><div class="row" style="flex-wrap:nowrap">${avatar(x,44)}<div><b>${esc(x.name)}</b><div class="muted small">${esc(roleText(x))}</div></div></div><div class="row">${x.role==='student'?`<button class="btn sm" data-a="manageGrades" data-id="${x.id}" title="Manage grades & results">Grades${x.overall!=null?`: ${fmt2(x.overall)}`:''}</button>`:''}${x.status==='active'?'<span class="chip ok">✓ Active</span>':'<span class="chip mute">Deactivated</span>'}${x.id===u.id?'':x.status==='active'?`<button class="btn sm" data-a="deact" data-id="${x.id}">Deactivate</button>`:`<button class="btn sm" data-a="react" data-id="${x.id}">Reactivate</button>`}</div></div>`).join('')}</div>`}
 live.people=()=>{const el=document.getElementById('live-people');if(el)el.innerHTML=peopleList()};
 function peoplePage(u){
   const pend=S.users.filter(x=>x.status==='pending'),add=fv('pp.add',false),role=fv('ps.role','Lecturer');
@@ -930,17 +932,113 @@ submits.createStaff=()=>{if(!need('manage_accounts'))return;const name=fv('ps.na
   addLog(`Account created for ${name}`);save();
   if(AU_CONFIG.USE_BACKEND && AuAPI.flush) AuAPI.flush();
   Object.keys(F).filter(k=>k.startsWith('ps.')).forEach(k=>delete F[k]);F['pp.add']=false;render();toast(`Account created for ${name}. Initial password: ${rawPw} (they will set their own on sign in).`)};
-actions.approve=el=>{const x=user(el.dataset.id);x.status='active';x.overall=null;const rec=S.registry.find(r=>r.schoolId===x.schoolId);if(rec)x.programme=rec.programme||'';addLog(`${x.name} was approved`);save();render();toast(`${x.name} approved. They can sign in now.`)};
+actions.approve=el=>{
+  const x=user(el.dataset.id);x.status='active';
+  const rec=S.registry.find(r=>r.schoolId===x.schoolId);
+  if(rec){
+    if(rec.programme)x.programme=rec.programme;
+    if(rec.year)x.year=rec.year;
+    if(rec.overall!=null)x.overall=rec.overall;
+    if(rec.gpas&&rec.gpas.length)x.gpas=clone(rec.gpas);
+  }
+  addLog(`${x.name} was approved`);save();
+  if(AU_CONFIG.USE_BACKEND && AuAPI.flush) AuAPI.flush();
+  render();toast(`${x.name} approved. They can sign in now.`);
+};
 actions.correct=el=>{const x=user(el.dataset.id);x.status='correction';addLog(`${x.name} was asked to correct their sign-up`);save();render();toast(`${x.name} was asked to correct their details.`)};
 actions.reject=el=>{const x=user(el.dataset.id);x.status='rejected';addLog(`${x.name}'s sign-up was rejected`);save();render();toast('Sign-up rejected.')};
 actions.deact=el=>{const x=user(el.dataset.id);if(!need('manage_accounts'))return;x.status='deactivated';addLog(`${x.name} was deactivated`);save();render();toast(`${x.name} deactivated. Their records are kept.`)};
 actions.react=el=>{const x=user(el.dataset.id);if(!need('manage_accounts'))return;x.status='active';addLog(`${x.name} was reactivated`);save();render();toast(`${x.name} reactivated.`)};
-actions.importStudents=()=>{F['imp.text']='';F['imp.file']='';ui.err={};openModal('Import students from a file',()=>`<p class="mb">Upload a CSV file, or paste rows below. Each row is: <b>school ID, name, school email, year, programme</b>. These become the school records that sign-ups are checked against.</p><div class="field"><input type="file" accept=".csv,text/csv,text/plain" data-a-file="1" id="impfile" aria-label="CSV file"></div>${fld('imp.text',{label:'Or paste rows',ta:true,rows:5,ph:'2026-0601, Tariro Moyo, tariro.moyo@students.school.edu, 1, BSc Computer Science'})}<div class="row"><button class="btn pri" data-a="doImport">Import</button><button class="btn" data-a="closeModal">Cancel</button></div>`)};
+actions.importStudents=()=>{
+  F['imp.text']='';F['imp.file']='';ui.err={};
+  openModal('Import students & results from file',()=>`
+    <p class="mb">Upload a CSV file, or paste rows below. Each row can include academic marks:<br>
+    <b>School ID, Name, AU Email, Year, Programme, Overall GPA (optional), Semester GPAs (optional: 3.40;3.64;3.52)</b>.<br>
+    <span class="muted small">Uploaded records update the Registry and immediately populate live student profiles and degree transcripts.</span></p>
+    <div class="field"><input type="file" accept=".csv,text/csv,text/plain" data-a-file="1" id="impfile" aria-label="CSV file"></div>
+    ${fld('imp.text',{label:'Or paste rows',ta:true,rows:6,ph:'260833, Ashley Kanombirira, kanombiriraa@africau.edu, 2, BSc Software Engineering, 3.52, 3.40;3.64;3.52'})}
+    <div class="row"><button class="btn pri" data-a="doImport">Import & Update Profiles</button><button class="btn" data-a="closeModal">Cancel</button></div>
+  `);
+};
 document.addEventListener('change',e=>{const t=e.target;if(t&&t.id==='impfile'&&t.files&&t.files[0]){const r=new FileReader();r.onload=()=>{F['imp.text']=String(r.result||'');renderModal();toast('File read. Check the rows, then choose Import.')};r.readAsText(t.files[0])}});
-actions.doImport=()=>{const rows=fv('imp.text').split(/\r?\n/).map(l=>l.split(',').map(x=>x.trim())).filter(c=>c.length>=3&&c[0]&&!/^school\s*id$/i.test(c[0]));let n=0;
-  rows.forEach(c=>{if(!/^\S+@\S+\.\S+$/.test(c[2]))return;S.registry=S.registry.filter(r=>r.schoolId!==c[0]);S.registry.push({schoolId:c[0],name:c[1],email:c[2],year:Number(c[3])||1,programme:c[4]||''});n++});
-  if(!n){ui.err['imp.text']='No valid rows found. Each row needs a school ID, a name and a valid email.';renderModal();return}
-  ui.err={};addLog(`${n} student records imported`);save();closeModal();render();toast(`${plural(n,'record')} imported.`)};
+actions.doImport=()=>{
+  const rows=fv('imp.text').split(/\r?\n/).map(l=>l.split(',').map(x=>x.trim())).filter(c=>c.length>=3&&c[0]&&!/^school\s*id$/i.test(c[0]));
+  let n=0, updatedUsers=0;
+  rows.forEach(c=>{
+    if(!/^\S+@\S+\.\S+$/.test(c[2]))return;
+    const sid=c[0], name=c[1], email=c[2], year=Number(c[3])||1, prog=c[4]||'';
+    const overall=(c[5]&&!isNaN(parseFloat(c[5])))?Math.round(parseFloat(c[5])*100)/100:null;
+    let gpas=[];
+    if(c[6]){
+      gpas=c[6].split(/[;\s]+/).map(x=>parseFloat(x.trim())).filter(x=>!isNaN(x));
+    }
+    // Update or add in S.registry
+    S.registry=S.registry.filter(r=>r.schoolId!==sid);
+    S.registry.push({schoolId:sid,name,email,year,programme:prog,overall,gpas});
+
+    // CRITICAL: Immediately update matching existing student in S.users
+    const existing=S.users.find(u=>u.schoolId===sid||(u.email&&u.email.toLowerCase()===email.toLowerCase()));
+    if(existing){
+      if(name)existing.name=name;
+      if(year)existing.year=year;
+      if(prog)existing.programme=prog;
+      if(overall!==null)existing.overall=overall;
+      if(gpas.length>0)existing.gpas=gpas;
+      updatedUsers++;
+    }
+    n++;
+  });
+  if(!n){ui.err['imp.text']='No valid rows found. Each row needs a school ID, a name and a valid email.';renderModal();return;}
+  ui.err={};
+  addLog(`${n} student records imported (${updatedUsers} live profile${updatedUsers===1?'':'s'} updated with results)`);
+  save();
+  if(AU_CONFIG.USE_BACKEND && AuAPI.flush) AuAPI.flush();
+  closeModal();
+  render();
+  toast(`${plural(n,'record')} imported. ${updatedUsers?plural(updatedUsers,'active profile')+' updated with results.':''}`);
+};
+
+actions.manageGrades=el=>{
+  const s=user(el.dataset.id);
+  if(!s)return;
+  F['mg.id']=s.id;
+  F['mg.overall']=s.overall!=null?String(s.overall):'';
+  F['mg.gpas']=(s.gpas||[]).join('; ');
+  ui.err={};
+  openModal(`Manage results: ${s.name}`,()=>`
+    <p class="muted small mb">View or update official academic results for <b>${esc(s.name)}</b> (${esc(s.schoolId||'No ID')}). Changes take effect on their profile immediately.</p>
+    <form data-submit="saveGrades" novalidate>
+      <div class="grid g2">
+        ${fld('mg.overall',{label:'Overall Cumulative GPA',ph:'e.g. 3.52',type:'number',step:'0.01'})}
+        <div class="stat" style="margin:0"><div class="l">Current Status</div><div class="n" style="font-size:18px">${s.overall!=null?`${fmt2(s.overall)} / 4.00`:'Not certified'}</div></div>
+      </div>
+      ${fld('mg.gpas',{label:'Semester GPAs (in order, separated by semicolons)',ph:'3.40; 3.64; 3.52',hint:'e.g. "3.40; 3.64; 3.52" represents completed semesters 1, 2, and 3.'})}
+      <div class="row mt">
+        <button class="btn pri" type="submit">Save results</button>
+        <button type="button" class="btn" data-a="closeModal">Cancel</button>
+      </div>
+    </form>
+  `);
+};
+submits.saveGrades=()=>{
+  const sid=fv('mg.id'), s=user(sid);
+  if(!s)return fail();
+  const ov=fv('mg.overall').trim();
+  const rawGpas=fv('mg.gpas').trim();
+  s.overall=ov!==''&&!isNaN(parseFloat(ov))?Math.round(parseFloat(ov)*100)/100:null;
+  s.gpas=rawGpas?rawGpas.split(/[;\s,]+/).map(x=>parseFloat(x.trim())).filter(x=>!isNaN(x)):[];
+  const rec=S.registry.find(r=>r.schoolId===s.schoolId);
+  if(rec){
+    rec.overall=s.overall;
+    rec.gpas=clone(s.gpas);
+  }
+  addLog(`Academic results updated for ${s.name}`);
+  save();
+  if(AU_CONFIG.USE_BACKEND && AuAPI.flush) AuAPI.flush();
+  closeModal();
+  render();
+  toast(`Results updated for ${s.name}. Overall GPA: ${s.overall!=null?fmt2(s.overall):'Not set'}.`);
+};
 
 /* permissions */
 function permsPage(u){
