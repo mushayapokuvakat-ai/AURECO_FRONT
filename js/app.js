@@ -244,7 +244,7 @@ const NAV={student:[['Home',''],['My grades','/grades'],['My projects','/project
 const SIDE_TITLE={student:'My portfolio',staff:'Staff portal',supervisor:'Supervisor',admin:'Admin'};
 function shell(u,body){const base='/'+u.role,cur=location.hash.replace(/^#/,'');
   const items=NAV[u.role].map(([l,p])=>{const on=p===''?cur===base:cur.startsWith(base+p);return `<a href="#${base+p}" class="nav-i ${on?'on':''}" ${on?'aria-current="page"':''}>${l}</a>`}).join('');
-  return `<div class="shell"><aside class="side"><div class="brand">${logo()}<span style="line-height:1.2"><b>Africa University</b><br><span class="muted small">${SIDE_TITLE[u.role]}</span></span></div><nav aria-label="Main">${items}</nav><div class="side-foot"><span>${esc(u.name)}</span>${themeBtn()}<button class="linkbtn" data-a="logout">Log out</button></div></aside><main class="main" id="main">${body}</main></div>`}
+  return `<div class="shell"><aside class="side"><div class="brand">${logo()}<span style="line-height:1.2"><b>Africa University</b><br><span class="muted small">${SIDE_TITLE[u.role]}</span></span></div><nav aria-label="Main">${items}</nav><div class="side-foot"><span>${esc(u.name)}</span>${themeBtn()}<button class="linkbtn" data-a="changePasswordModal">Change password</button><button class="linkbtn" data-a="logout">Log out</button></div></aside><main class="main" id="main">${body}</main></div>`}
 
 /* ---------- auth: log in ---------- */
 const ROLE_LABEL={student:'Student',staff:'Staff',supervisor:'Supervisor',admin:'Administrator'};
@@ -271,6 +271,44 @@ actions.fillDemo=el=>{F['login.role']=el.dataset.r;F['login.id']=el.dataset.id;F
 actions.resetDemo=()=>{try{localStorage.removeItem(KEY)}catch(e){}S=seed();SES=null;saveSes();F={};ui={err:{}};render();toast('Demo data reset.')};
 actions.forgot=()=>openModal('Reset your password',()=>`<p class="mb">Enter your school email. We will send a link to reset your password.</p>${fld('forgot.email',{label:'School email',type:'email',ph:'name@school.edu'})}<div class="row"><button class="btn pri" data-a="sendReset">Send reset link</button><button class="btn" data-a="closeModal">Cancel</button></div>`);
 actions.sendReset=()=>{const v=fv('forgot.email').trim();if(!/^\S+@\S+\.\S+$/.test(v)){ui.err['forgot.email']='Enter a valid email, like name@school.edu.';renderModal();return}ui.err={};closeModal();toast('If that email belongs to an account, a reset link is on its way. (Prototype: no email is actually sent.)')};
+
+/* Change password modal */
+actions.changePasswordModal=(required)=>{
+  F['cp.pw']='';F['cp.pw2']='';ui.err={};
+  openModal('Set your personal password',()=>{
+    return `${required===true?'<div class="banner info mb"><b>Security notice:</b> You signed in with a temporary default password. Please choose a new personal password below.</div>':''}
+      <form data-submit="doChangePassword" novalidate>
+        ${fld('cp.pw',{label:'New password',type:'password',ph:'At least 8 characters',auto:'new-password'})}
+        ${fld('cp.pw2',{label:'Confirm new password',type:'password',ph:'Re-enter new password',auto:'new-password'})}
+        <div class="row mt">
+          <button class="btn pri" type="submit">Save new password</button>
+          ${required===true?'':`<button type="button" class="btn" data-a="closeModal">Cancel</button>`}
+        </div>
+      </form>`;
+  });
+};
+submits.doChangePassword=()=>{
+  const p1=fv('cp.pw').trim(),p2=fv('cp.pw2').trim();
+  ui.err={};
+  if(!p1||p1.length<8)ui.err['cp.pw']='Password must be at least 8 characters.';
+  if(p1!==p2)ui.err['cp.pw2']="Passwords don't match.";
+  if(Object.keys(ui.err).length)return renderModal();
+  if(AU_CONFIG.USE_BACKEND){
+    AuAPI.changePassword(p1,p2).then(()=>{
+      const u=me();if(u)u.mustChangePassword=false;
+      closeModal();
+      toast('Your password has been updated.');
+    }).catch(e=>{
+      ui.err['cp.pw']=(e&&e.message)||'Could not update password.';
+      renderModal();
+    });
+  } else {
+    const u=me();if(u){u.password=p1;u.mustChangePassword=false;save()}
+    closeModal();
+    toast('Your password has been updated.');
+  }
+};
+
 submits.login=()=>{if(AU_CONFIG.USE_BACKEND)return loginRemote();
   const role=fv('login.role','student'),id=fv('login.id').trim().toLowerCase(),pw=fv('login.pw');ui.err={};
   if(!id)ui.err['login.id']='Enter your school email or school ID.';
@@ -282,15 +320,34 @@ submits.login=()=>{if(AU_CONFIG.USE_BACKEND)return loginRemote();
   const msg={pending:"Your sign-up is waiting for the administrator to approve it. You can sign in once it's approved.",correction:'The administrator asked you to correct your details. Create your account again using the details the school holds for you.',rejected:'This sign-up was not approved. Contact the registry office for help.',deactivated:'This account has been deactivated. Contact the registry office to have it turned back on.'}[u.status];
   if(msg){ui.err.login=msg;return fail()}
   SES={uid:u.id,perms:clone(S.perms)};saveSes(!!fv('login.keep'));F={};ui={err:{}};go('/'+u.role);
+  if(u.mustChangePassword){setTimeout(()=>actions.changePasswordModal(true), 400);}
 };
-actions.logout=()=>{if(AU_CONFIG.USE_BACKEND){AuAPI.logout();S=seed()}SES=null;saveSes();F={};ui={err:{}};location.hash='#/login';render()};
+actions.logout=()=>{
+  if(AU_CONFIG.USE_BACKEND){
+    if(AuAPI.flush) AuAPI.flush();
+    AuAPI.logout();
+    S=seed();
+  }
+  SES=null;saveSes();F={};ui={err:{}};location.hash='#/login';render();
+};
 
 /* backend login: the server checks the password and returns a token; the app then loads its data */
 function loginRemote(){const role=fv('login.role','student'),id=fv('login.id').trim(),pw=fv('login.pw'),keep=!!fv('login.keep');ui.err={};
   if(!id)ui.err['login.id']='Enter your school email or school ID.';
   if(!pw)ui.err['login.pw']='Enter your password.';
   if(Object.keys(ui.err).length)return fail();
-  AuAPI.login(role,id,pw,keep).then(r=>AuAPI.fetchState().then(st=>{S=st;const u=user(r.userId);SES={uid:r.userId,perms:clone(S.perms)};saveSes(keep);F={};ui={err:{}};go('/'+(u?u.role:role))}))
+  AuAPI.login(role,id,pw,keep).then(r=>AuAPI.fetchState().then(st=>{
+    S=st;
+    const u=user(r.userId);
+    SES={uid:r.userId,perms:clone(S.perms)};
+    saveSes(keep);
+    F={};
+    ui={err:{}};
+    go('/'+(u?u.role:role));
+    if(r.mustChangePassword||(u&&u.mustChangePassword)){
+      setTimeout(()=>actions.changePasswordModal(true), 400);
+    }
+  }))
    .catch(e=>{AuAPI.clearToken();ui.err.login=(e&&e.message)||'We could not sign you in. Check your connection and try again.';fail()})}
 AuAPI.onError=msg=>toast(msg,'bad');
 AuAPI.onUnauthorized=()=>{if(SES){SES=null;saveSes();S=seed();ui={err:{}};location.hash='#/login';render();toast('Your session has ended. Please sign in again.','bad')}};
@@ -851,10 +908,10 @@ function peoplePage(u){
   const pend=S.users.filter(x=>x.status==='pending'),add=fv('pp.add',false),role=fv('ps.role','Lecturer');
   const stu=students();
   return `${crumbs([['Home','/admin'],['People']])}<div class="pagehead"><div><h1>People</h1><p class="sub">Create staff accounts, approve student sign-ups, and manage every account.</p></div><div class="row"><button class="btn" data-a="importStudents">Import students from a file</button><button class="btn pri" data-a="togglePP">Add staff or supervisor</button></div></div>
-  ${add?`<div class="card mb"><h3>Add staff or supervisor</h3><form data-submit="createStaff" novalidate><div class="grid g2">${fld('ps.name',{label:'Full name',ph:'Casey Brooks'})}${fld('ps.email',{label:'Work email',type:'email',ph:'casey.brooks@acme.example'})}${selF('ps.role',['Lecturer','Teacher','Supervisor'],{label:'Role',r:1,def:'Lecturer'})}${fld('ps.dept',{label:role==='Supervisor'?'Company':'Department',ph:role==='Supervisor'?'Acme Ltd':'Computing'})}</div>
+  ${add?`<div class="card mb"><h3>Add staff or supervisor</h3><form data-submit="createStaff" novalidate><div class="grid g2">${fld('ps.name',{label:'Full name',ph:'Casey Brooks'})}${fld('ps.email',{label:'Work email',type:'email',ph:'casey.brooks@acme.example'})}${selF('ps.role',['Lecturer','Teacher','Supervisor'],{label:'Role',r:1,def:'Lecturer'})}${fld('ps.dept',{label:role==='Supervisor'?'Company':'Department',ph:role==='Supervisor'?'Acme Ltd':'Computing'})}${fld('ps.pw',{label:'Initial password',ph:'demo1234 (default if empty)',hint:'Staff member will be prompted to set their own password.'})}</div>
    <div class="field"><label>${role==='Supervisor'?'Students they supervise':'Students they teach'}</label><div class="card tint" style="max-height:170px;overflow:auto;padding:10px 14px">${stu.map(s=>chk('ps.s.'+s.id,`${esc(s.name)} <span class="muted small">${esc(s.schoolId)}${s.attach&&role==='Supervisor'?' · already linked to a supervisor':''}</span>`)).join('')}</div><div class="hint">${role==='Supervisor'?"They only see the students you link here, and only while the attachment runs.":'They only see the students you tick here.'}</div></div>
    ${role==='Supervisor'?`<div class="grid g2">${fld('ps.start',{label:'Attachment starts',type:'date',def:todayISO()})}${fld('ps.end',{label:'Attachment ends',type:'date',def:new Date(Date.now()+84*DAY).toISOString().slice(0,10)})}</div>`:''}
-   <p class="hint mb">They'll get an email with a link to set their own password.</p><div class="row"><button class="btn pri" type="submit">Create account</button><button type="button" class="btn" data-a="togglePP">Cancel</button></div></form></div>`:''}
+   <p class="hint mb">The user can sign in immediately using this initial password and will be prompted to set a personal password.</p><div class="row"><button class="btn pri" type="submit">Create account</button><button type="button" class="btn" data-a="togglePP">Cancel</button></div></form></div>`:''}
   <div class="card mb"><h3>Waiting for approval (${pend.length})</h3><p class="muted small mb">Students who signed up themselves. Check their details match school records.</p>${pend.length?`<div class="list">${pend.map(x=>`<div><div class="item"><div><b>${esc(x.name)}</b><div class="small" style="color:var(--${x.signup&&x.signup.match?'ok':'warn'})">${x.signup&&x.signup.match?'✓':'▲'} ${esc(x.schoolId)} · ${x.signup&&x.signup.match?'Details match school records':"Details don't match"}</div>${x.signup&&!x.signup.match?x.signup.issues.map(i=>`<div class="muted small">${esc(i)}</div>`).join(''):''}</div><div class="row">${x.signup&&x.signup.match?`<button class="btn sm pri" data-a="approve" data-id="${x.id}">Approve</button>`:`<button class="btn sm" data-a="correct" data-id="${x.id}">Ask them to correct it</button>`}<button class="btn sm" data-a="reject" data-id="${x.id}">Reject</button></div></div></div>`).join('')}</div>`:'<div class="empty">No sign-ups are waiting. New student sign-ups will show here.</div>'}</div>
   <h2 class="mb">Everyone</h2><div class="card"><div class="row mb" style="align-items:flex-start"><div class="field grow" style="margin:0"><input data-k="pp.q" data-live="people" value="${esc(fv('pp.q'))}" placeholder="⌕ Search by name, email or school ID" aria-label="Search people"></div><div style="min-width:140px">${selF('pp.role',ROLE_FILTER,{lv:'people'})}</div><div style="min-width:150px">${selF('pp.status',[['all','All statuses'],['active','Active'],['deactivated','Deactivated']],{lv:'people'})}</div></div><div id="live-people">${peopleList()}</div><p class="hint mt">Accounts are deactivated, never deleted, so student records stay safe.</p></div>`}
 actions.togglePP=()=>{F['pp.add']=!fv('pp.add',false);ui.err={};render()};
@@ -862,14 +919,17 @@ submits.createStaff=()=>{if(!need('manage_accounts'))return;const name=fv('ps.na
   if(!name)ui.err['ps.name']="Enter the person's full name.";
   if(!/^\S+@\S+\.\S+$/.test(email))ui.err['ps.email']='Enter a work email, like name@school.edu.';else if(S.users.some(x=>x.email.toLowerCase()===email.toLowerCase()))ui.err['ps.email']='There is already an account with this email.';
   if(!dept)ui.err['ps.dept']=role==='Supervisor'?'Enter the company they work for.':'Enter their department.';
+  const rawPw=fv('ps.pw').trim()||'demo1234';
   const ids=students().filter(s=>F['ps.s.'+s.id]).map(s=>s.id);
   let st,en;if(role==='Supervisor'){st=new Date(fv('ps.start',todayISO())+'T00:00:00').getTime();en=new Date(fv('ps.end')||new Date(Date.now()+84*DAY).toISOString().slice(0,10)+'T00:00:00').getTime();if(!(en>st))ui.err['ps.end']='The end date must be after the start date.'}
   if(Object.keys(ui.err).length)return fail();
   const id=uid('u');
-  if(role==='Supervisor'){S.users.push({id,role:'supervisor',name,company:dept,dept:'Workplace supervisor',email,password:'welcome123',status:'active',photo:null});ids.forEach(sid=>{user(sid).attach={supId:id,company:dept,start:st,end:en}})}
-  else S.users.push({id,role:'staff',hon:role==='Lecturer'?'Dr.':'Mr./Ms.',name,title:role,dept,email,teaches:ids,password:'welcome123',status:'active',photo:null});
+  if(role==='Supervisor'){S.users.push({id,role:'supervisor',name,company:dept,dept:'Workplace supervisor',email,password:rawPw,mustChangePassword:true,status:'active',photo:null});ids.forEach(sid=>{user(sid).attach={supId:id,company:dept,start:st,end:en}})}
+  else S.users.push({id,role:'staff',hon:role==='Lecturer'?'Dr.':'Mr./Ms.',name,title:role,dept,email,teaches:ids,password:rawPw,mustChangePassword:true,status:'active',photo:null});
   if(role!=='Supervisor')user(id).hon='';
-  addLog(`Account created for ${name}`);save();Object.keys(F).filter(k=>k.startsWith('ps.')).forEach(k=>delete F[k]);F['pp.add']=false;render();toast(`Account created for ${name}. In the live system they would get an email to set a password. For this prototype the password is welcome123.`)};
+  addLog(`Account created for ${name}`);save();
+  if(AU_CONFIG.USE_BACKEND && AuAPI.flush) AuAPI.flush();
+  Object.keys(F).filter(k=>k.startsWith('ps.')).forEach(k=>delete F[k]);F['pp.add']=false;render();toast(`Account created for ${name}. Initial password: ${rawPw} (they will set their own on sign in).`)};
 actions.approve=el=>{const x=user(el.dataset.id);x.status='active';x.overall=null;const rec=S.registry.find(r=>r.schoolId===x.schoolId);if(rec)x.programme=rec.programme||'';addLog(`${x.name} was approved`);save();render();toast(`${x.name} approved. They can sign in now.`)};
 actions.correct=el=>{const x=user(el.dataset.id);x.status='correction';addLog(`${x.name} was asked to correct their sign-up`);save();render();toast(`${x.name} was asked to correct their details.`)};
 actions.reject=el=>{const x=user(el.dataset.id);x.status='rejected';addLog(`${x.name}'s sign-up was rejected`);save();render();toast('Sign-up rejected.')};

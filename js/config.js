@@ -14,11 +14,12 @@
 
     // Endpoint paths
     ENDPOINTS: {
-      login:      '/api/auth/login',
-      logout:     '/api/auth/logout',
-      signup:     '/api/auth/signup',
-      verifyCode: '/api/auth/verify-code',
-      state:      '/api/state',
+      login:          '/api/auth/login',
+      logout:         '/api/auth/logout',
+      signup:         '/api/auth/signup',
+      verifyCode:     '/api/auth/verify-code',
+      changePassword: '/api/auth/change-password',
+      state:          '/api/state',
       aiLetter:   '/api/ai/recommendation-letter',
       aiReview:   '/api/ai/portfolio-review',
       aiImprove:  '/api/ai/improve-project'

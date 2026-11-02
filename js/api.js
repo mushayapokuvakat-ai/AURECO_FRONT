@@ -87,11 +87,22 @@
     verifyCode: function (data) {
       return request(EP.verifyCode, { method: 'POST', auth: false, body: data });
     },
+    changePassword: function (newPassword, confirmPassword) {
+      return request(EP.changePassword || '/api/auth/change-password', {
+        method: 'POST',
+        body: { newPassword: newPassword, confirmPassword: confirmPassword }
+      });
+    },
     fetchState: function () { return request(EP.state); },
     /* Called by the app every time its data changes. Sends the latest copy after a short pause. */
     pushState: function (state) {
       pending = state; clearTimeout(timer);
       timer = setTimeout(sendNow, C.SAVE_DELAY_MS || 600);
+    },
+    /* Force immediate state push without waiting for debounce */
+    flush: function () {
+      if (timer) { clearTimeout(timer); timer = null; }
+      if (pending) sendNow();
     },
     /* AI Features */
     aiLetter: function (data) {
