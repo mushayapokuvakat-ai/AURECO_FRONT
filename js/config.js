@@ -20,9 +20,17 @@
       verifyCode:     '/api/auth/verify-code',
       changePassword: '/api/auth/change-password',
       state:          '/api/state',
-      aiLetter:   '/api/ai/recommendation-letter',
-      aiReview:   '/api/ai/portfolio-review',
-      aiImprove:  '/api/ai/improve-project'
+      aiLetter:       '/api/ai/recommendation-letter',
+      aiReview:       '/api/ai/portfolio-review',
+      aiImprove:      '/api/ai/improve-project',
+      aiDraftEmail:   '/api/ai/draft-request-email',
+      guestAccess:    '/api/guest/letter/access',
+      guestSubmit:    '/api/guest/letter',
+      guestVerify:    '/api/guest/verify',
+      publicProfile:  '/api/public/profile',
+      letterRequest:  '/api/letters/request',
+      verifyActivity: '/api/letters/verify-activity',
+      directory:      '/api/directory/search'
     },
 
     // Bearer token used by default

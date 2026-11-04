@@ -181,7 +181,7 @@ const live={},actions={},submits={};
 const user=id=>S.users.find(u=>u.id===id);
 const me=()=>{const u=SES&&user(SES.uid);return u&&u.status==='active'?u:null};
 const students=()=>S.users.filter(u=>u.role==='student'&&u.status==='active');
-const staffLabel=u=>((u.hon?u.hon+' ':'')+u.name);
+const staffLabel=u=>u?((u.hon?u.hon+' ':'')+u.name):'External Recommender';
 function can(key){const u=me();if(!u)return false;const perms=(SES&&SES.perms)||S.perms;const c=perms[key]&&perms[key][permRole(u)];return !!(c&&c.v)}
 function need(key){if(can(key))return true;toast("Your role doesn't have this permission. The administrator can change it under Permissions.",'bad');return false}
 function addLog(text){S.log.unshift({ts:Date.now(),text});S.log=S.log.slice(0,30)}
@@ -190,7 +190,7 @@ const myProjects=sid=>S.projects.filter(p=>p.sid===sid);
 const isComplete=sid=>myProjects(sid).length>0&&['achievement','leadership','extra'].every(t=>myActs(sid).some(x=>x.type===t));
 const TYPES={achievement:'School achievements',leadership:'Leadership roles',extra:'Extracurricular'};
 const TYPE1={achievement:'School achievement',leadership:'Leadership role',extra:'Extracurricular'};
-const FNAME=(u)=>u.role==='staff'?staffLabel(u):u.name;
+const FNAME=(u)=>u?(u.role==='staff'?staffLabel(u):u.name):'External';
 const OLD=30*DAY;
 const oldEntries=()=>S.acts.filter(a=>a.status!=='verified'&&Date.now()-a.created>OLD&&user(a.sid)&&user(a.sid).status==='active');
 const openLetters=l=>['waiting','accepted','changes'].includes(l.status);
@@ -444,6 +444,19 @@ window.addEventListener('hashchange',()=>{F=Object.assign({},NEXT);NEXT={};ui={e
 function render(){
   const y=window.scrollY||0;const u=me();const parts=location.hash.replace(/^#/,'').split('/').filter(Boolean);
   document.documentElement.dataset.role=u?u.role:'student';
+
+  // Handle Unauthenticated Public Profiles and Guest Portals
+  if(parts[0]==='p'){
+    publicProfilePage(parts[1]||'');
+    renderModal();
+    return;
+  }
+  if(parts[0]==='guest'){
+    guestPortalPage(parts.slice(1));
+    renderModal();
+    return;
+  }
+
   if(!u){if(SES){SES=null;saveSes()}
     if(parts[0]!=='signup'&&parts[0]!=='login'){location.replace('#/login');return}
     app.innerHTML=parts[0]==='signup'?signupPage():loginPage();document.title=(parts[0]==='signup'?'Create your account':'Sign in')+' · '+SCHOOL;
@@ -488,8 +501,9 @@ function studentHome(u){
   return `<div class="hello">${avatar(u,72,true)}<div><h1>Hi, ${esc(first(u.name))} <span aria-hidden="true">– <span class="typer" id="typer">${esc(window.__typerText||'')}</span></span><span class="sr"> Developer, Designer and Student</span></h1><p class="muted">Year ${u.year} · ${esc(u.programme)}</p></div></div>
   ${bits.length?`<div class="banner" role="status">● ${bits.length===1?'1 thing needs':bits.length+' things need'} you: ${bits.join(', and ')}.</div>`:''}
   <section class="intro" aria-label="About me, contact, certifications and skills">
-   <div class="card"><div class="row between"><h3>About me</h3><button class="btn sm" data-a="editAbout">Edit</button></div>
-    <p>${esc(u.bio)||'<span class="muted">Add a short bio so readers know who you are.</span>'}</p></div>
+   <div class="card"><div class="row between"><h3>About me</h3><span class="row"><button class="btn sm" data-a="openPublicShare">🌐 Share Profile</button><button class="btn sm" data-a="editAbout">Edit</button></span></div>
+    <p>${esc(u.bio)||'<span class="muted">Add a short bio so readers know who you are.</span>'}</p>
+    ${(u.publicShare&&u.publicShare.enabled)?`<div class="mt" style="font-size:0.8rem;color:var(--ok)">✓ Public profile active (share link ready)</div>`:''}</div>
    <div class="card"><div class="row between"><h3>Contact</h3><button class="btn sm" data-a="editAbout">Edit</button></div>
     <p class="small">Email: ${esc(u.email)}<br>Phone: ${esc(u.phone)||'–'}<br>LinkedIn: ${esc(u.linkedin)||'–'}<br>GitHub: ${esc(u.github)||'–'}</p></div>
    <div class="card wide"><div class="row between"><h3>Certifications &amp; Skills</h3><button class="btn sm" data-a="editAbout">Edit</button></div>
@@ -654,18 +668,47 @@ function activitiesPage(u){
     ${a.status!=='verified'?`<div class="row mt"><button class="btn sm" data-a="delAct" data-id="${a.id}">Remove entry</button></div>`:''}</div>`).join('')}</div>`:`<div class="empty">${all.length?'Nothing matches this filter. Try Everything or a different year.':'No activities yet. Add your first achievement, leadership role or club.'}</div>`}
   <div class="row mt2"><button class="btn" data-a="printRecord">Print or save my record</button></div>`}
 function activityForm(u){
+  const verQuery=(fv('act.vsearch')||'').trim().toLowerCase();
+  const verResults=verQuery.length>=2?(S.users.filter(x=>(x.role==='staff'||x.role==='supervisor')&&x.status==='active'&&(x.name.toLowerCase().includes(verQuery)||(x.email&&x.email.toLowerCase().includes(verQuery))))):[];
   return `<div class="card mb"><h3>Add an activity</h3><form data-submit="saveAct" novalidate><div class="grid g2">
    ${selF('act.type',[['achievement','School achievement'],['leadership','Leadership role'],['extra','Extracurricular']],{label:'What kind is it?'})}
    ${selF('act.year',[1,2,3,4].filter(y=>y<=Math.max(u.year,1)).map(y=>[y,y]),{label:'Which year?',def:u.year})}</div>
    ${fld('act.title',{label:'What is it called?',ph:'Debate society captain'})}
    ${fld('act.where',{label:'Where or what role? (optional)',ph:"Students' union, 2 hours a week"})}
    <div class="field"><label for="act_cert">Attach a certificate (optional)</label><input id="act_cert" type="file" data-k="act.cert" accept="image/*,.pdf"><div class="hint">${fv('act.cert')?'Attached: '+esc(fv('act.cert')):'A photo or PDF works.'}</div></div>
+   <div class="field">
+     <label for="act_vsearch">Who should verify this? (Lecturer, Supervisor, or External Email)</label>
+     <input id="act_vsearch" data-k="act.vsearch" data-live="verifierSearch" value="${esc(fv('act.vsearch'))}" placeholder="⌕ Search teacher by name or type verifier@company.com..." autocomplete="off">
+     <div id="ver_results" class="mt" style="max-height:120px;overflow-y:auto">
+       ${verQuery.length>=2?`<div class="list">${verResults.map(s=>`<div class="item" style="cursor:pointer;padding:4px 8px" data-a="pickVerifier" data-name="${esc(s.name)}" data-email="${esc(s.email)}"><div><b>${esc(s.name)}</b> <span class="muted small">${esc(s.dept||s.company||'AU')} · ${esc(s.email)}</span></div><button type="button" class="btn sm">Select</button></div>`).join('')}${/^\S+@\S+\.\S+$/.test(verQuery)?`<div class="item" style="cursor:pointer;padding:4px 8px;background:var(--tint)" data-a="pickVerifier" data-name="${esc(verQuery.split('@')[0])}" data-email="${esc(verQuery)}"><div><b>Invite Verifier: ${esc(verQuery)}</b><div class="muted small">We'll email them an activity verification link &amp; 6-digit access code.</div></div><button type="button" class="btn sm pri">Use this email</button></div>`:''}</div>`:''}
+     </div>
+     ${fv('act.vemail')?`<div class="chip ok mt">Selected Verifier: <b>${esc(fv('act.vname')||fv('act.vemail'))}</b> (${esc(fv('act.vemail'))}) <button type="button" style="border:none;background:transparent;cursor:pointer;margin-left:6px" data-a="clearVerifier">✕</button></div>`:''}
+   </div>
    <div class="row"><button class="btn pri" type="submit">Save activity</button><button type="button" class="btn" data-a="toggleAdd">Cancel</button></div>
-   <p class="hint mt">A teacher will check it before it shows as verified.</p></form></div>`}
+   <p class="hint mt">A teacher or designated verifier will check and verify it.</p></form></div>`}
+live.verifierSearch=()=>render();
+actions.pickVerifier=el=>{F['act.vemail']=el.dataset.email;F['act.vname']=el.dataset.name;F['act.vsearch']=el.dataset.email;render()};
+actions.clearVerifier=()=>{delete F['act.vemail'];delete F['act.vname'];delete F['act.vsearch'];render()};
 actions.toggleAdd=()=>{F['act.add']=!fv('act.add',false);ui.err={};render()};
-submits.saveAct=()=>{if(!need('add_acts'))return;const u=me(),t=fv('act.title').trim();ui.err={};if(!t){ui.err['act.title']='Give this activity a name.';return fail()}
-  S.acts.push({id:uid('a'),sid:u.id,type:fv('act.type','achievement'),year:Number(fv('act.year',u.year)),title:t,where:fv('act.where').trim(),status:'waiting',created:Date.now(),evidence:fv('act.cert'),comments:[]});
-  save();['act.title','act.where','act.cert'].forEach(k=>delete F[k]);F['act.add']=false;render();toast('Saved. A teacher will check it soon.')};
+submits.saveAct=()=>{
+  if(!need('add_acts'))return;const u=me(),t=fv('act.title').trim();ui.err={};
+  if(!t){ui.err['act.title']='Give this activity a name.';return fail()}
+  const actId=uid('a');
+  const vemail=(fv('act.vemail')||'').trim();
+  const vname=(fv('act.vname')||vemail.split('@')[0]).trim();
+  const newAct={id:actId,sid:u.id,type:fv('act.type','achievement'),year:Number(fv('act.year',u.year)),title:t,where:fv('act.where').trim(),status:'waiting',created:Date.now(),evidence:fv('act.cert'),comments:[]};
+  S.acts.push(newAct);
+  save();
+  if(vemail&&AU_CONFIG.USE_BACKEND){
+    toast('📨 Sending verification request to '+vemail+'...');
+    AuAPI.requestVerification({activityId:actId,verifierEmail:vemail,verifierName:vname}).then(()=>{
+      toast('✓ Verification request sent to '+vemail+'!');
+    }).catch(e=>{
+      console.error(e);
+    });
+  }
+  ['act.title','act.where','act.cert','act.vemail','act.vname','act.vsearch'].forEach(k=>delete F[k]);
+  F['act.add']=false;render();toast('Saved. Waiting for verification.')};
 actions.delAct=el=>{S.acts=S.acts.filter(a=>a.id!==el.dataset.id);save();render();toast('Entry removed.')};
 actions.addEvidence=el=>{F['ev.id']=el.dataset.id;F['ev.name']='';openModal('Add evidence',()=>`<p class="mb">Attach a certificate, letter or photo that shows this entry is true.</p><div class="field ${ui.err['ev.name']?'has-err':''}"><input type="file" data-k="ev.name" accept="image/*,.pdf" aria-label="Evidence file">${ui.err['ev.name']?`<div class="errmsg">${esc(ui.err['ev.name'])}</div>`:''}</div><div class="row"><button class="btn pri" data-a="saveEvidence">Send evidence</button><button class="btn" data-a="closeModal">Cancel</button></div>`)};
 actions.saveEvidence=()=>{const a=S.acts.find(x=>x.id===F['ev.id']);if(!fv('ev.name')){ui.err['ev.name']='Choose a file to attach first.';renderModal();return}a.evidence=fv('ev.name');a.status='waiting';a.created=Date.now();ui.err={};save();closeModal();render();toast('Evidence sent. A teacher will check it again.')};
@@ -678,26 +721,137 @@ const LSTATUS={waiting:['info','● Waiting for a reply'],accepted:['info','✎ 
 function lettersPage(u){
   const mine=S.letters.filter(l=>l.sid===u.id).sort((a,b)=>b.created-a.created);
   const staffOpts=[['','Choose a staff member'],...S.users.filter(x=>x.role==='staff'&&x.status==='active').map(x=>[x.id,`${staffLabel(x)}, ${x.dept}`])];
+  const query=(fv('lt.search')||'').trim().toLowerCase();
+  const dirResults=query.length>=2?(S.users.filter(x=>(x.role==='staff'||x.role==='supervisor')&&x.status==='active'&&(x.name.toLowerCase().includes(query)||(x.email&&x.email.toLowerCase().includes(query))))):[];
+  const selStaffId=fv('lt.staff');
+  const selStaff=selStaffId?user(selStaffId):null;
+
   return `${crumbs([['Home','/student'],['My letters']])}<div class="pagehead"><div><h1>My letters</h1></div></div>
-  <div class="banner info mb">ⓘ You can still download your finished letters after you graduate. Just sign in with your school email.</div>
-  <div class="card"><h3>Ask for a new letter</h3><form data-submit="askLetter" novalidate><div class="grid g2">
-   ${selF('lt.staff',staffOpts,{label:'Who would you like to ask?'})}${selF('lt.purpose',['Job application','Internship','Scholarship','Further study','Other'],{label:'What is the letter for?'})}</div>
-   ${fld('lt.due',{label:'When do you need it by?',type:'date',min:todayISO(),hint:'Give your writer at least two weeks.'})}
-   ${fld('lt.note',{label:"Anything you'd like them to mention? (optional)",ta:true,ph:"I'm applying for a software internship..."})}
+  <div class="banner info mb">ⓘ You can ask internal lecturers or any external supervisor/employer. If they don't have an account, the system will send them a secure link with a 6-digit access code so they can write and certify your letter directly!</div>
+  <div class="card"><h3>Ask for a recommendation letter</h3><form data-submit="askLetter" novalidate>
+   <div class="field ${ui.err['lt.staff']?'has-err':''}">
+     <label for="lt_search">Search for recommender (lecturer, supervisor or outside employer)</label>
+     <input id="lt_search" data-k="lt.search" data-live="recommenderSearch" value="${esc(fv('lt.search'))}" placeholder="⌕ Type recommender's name or email to search..." autocomplete="off">
+     ${ui.err['lt.staff']?`<div class="errmsg">${esc(ui.err['lt.staff'])}</div>`:''}
+     <div id="recommender_results" class="mt" style="max-height:160px;overflow-y:auto">
+       ${query.length>=2?`<div class="list">${dirResults.map(s=>`<div class="item" style="cursor:pointer;padding:6px 10px" data-a="pickRecommender" data-id="${s.id}" data-name="${esc(s.name)}" data-email="${esc(s.email)}"><div><b>${esc(s.name)}</b> <span class="chip info sm" style="font-size:0.75rem">${esc(s.role)}</span><div class="muted small">${esc(s.dept||s.company||'Africa University')} · ${esc(s.email)}</div></div><button type="button" class="btn sm">Select</button></div>`).join('')}${/^\S+@\S+\.\S+$/.test(query)?`<div class="item" style="cursor:pointer;padding:6px 10px;background:var(--tint)" data-a="pickExternalRecommender" data-email="${esc(query)}"><div><b>Invite External: ${esc(query)}</b><div class="muted small">Person has no AU account? We'll email them a secure portal link &amp; access code.</div></div><button type="button" class="btn sm pri">Use this email</button></div>`:''}</div>`:''}
+     </div>
+   </div>
+   <div class="grid g2">
+     <div class="field"><label for="f_lt_name">Recommender's Full Name</label><input id="f_lt_name" data-k="lt.name" value="${esc(fv('lt.name',selStaff?selStaff.name:''))}" placeholder="e.g. Dr. Riley Adams or Mr. John Doe"></div>
+     <div class="field"><label for="f_lt_email">Recommender's Email Address (real email)</label><input id="f_lt_email" type="email" data-k="lt.email" value="${esc(fv('lt.email',selStaff?selStaff.email:''))}" placeholder="recommender@example.com"></div>
+   </div>
+   <div class="grid g2">
+    ${selF('lt.purpose',['Job application','Internship','Scholarship','Further study','Other'],{label:'What is the letter for?'})}
+    ${fld('lt.due',{label:'When do you need it by?',type:'date',min:todayISO(),hint:'Give your writer at least two weeks.'})}
+   </div>
+   <div class="field">
+     <div class="row between"><label for="f_lt_note">Anything you'd like them to mention? (or draft with AI below)</label>
+     <button type="button" class="btn sm gold" data-a="aiDraftRequestEmail">✨ AI Draft Polite Request Email</button></div>
+     <textarea id="f_lt_note" data-k="lt.note" rows="5" placeholder="I am applying for a Software Engineering internship at EcoCash. Please mention my final year project and leadership in the computing club...">${esc(fv('lt.note'))}</textarea>
+     <div class="hint">Gemini AI can automatically write a formal, courteous email request highlighting your top achievements.</div>
+   </div>
    <div class="field"><label>What can your writer see?</label>${chk('lt.s.grades','My grades',true)}${chk('lt.s.ach','My achievements',true)}${chk('lt.s.lead','My leadership roles',true)}${chk('lt.s.extra','My extracurricular activities',true)}</div>
-   <button class="btn pri" type="submit">Send request</button></form></div>
-  <div class="sect"><h2>My requests</h2>${mine.length?`<div class="stack">${mine.map(l=>{const s=user(l.staffId),st=LSTATUS[l.status],last=l.versions[l.versions.length-1];return `<div class="card"><div class="item"><div><b>${esc(staffLabel(s))}</b><div class="muted small">${esc(s.dept)} · ${esc(l.purpose)} · needed by ${fmtD(l.due)}</div></div><span class="chip ${st[0]}">${st[1]}</span></div>
+   <button class="btn pri" type="submit">Send request via email</button></form></div>
+  <div class="sect"><h2>My requests</h2>${mine.length?`<div class="stack">${mine.map(l=>{const s=user(l.staffId)||{name:l.recipientName||'External Recommender',dept:l.recipientEmail||'External'};const st=LSTATUS[l.status]||['info','● Active'],last=l.versions&&l.versions[l.versions.length-1];return `<div class="card"><div class="item"><div><b>${esc(l.recipientName||staffLabel(s))}</b><div class="muted small">${esc(l.recipientEmail||s.email||s.dept)} · ${esc(l.purpose)} · needed by ${fmtD(l.due)}</div></div><div class="row">${l.accessCode?`<span class="chip" style="font-family:monospace;background:var(--tint);border:1px solid var(--border)">Access Code: <b>${esc(l.accessCode)}</b></span>`:''}<span class="chip ${st[0]}">${st[1]}</span></div></div>
+   ${l.note?`<div class="cmt mt"><span class="muted">Note sent:</span> ${esc(l.note)}</div>`:''}
    ${l.status==='declined'?`<div class="cmt mt"><b>Reply:</b> ${esc(l.reply)}</div><div class="row mt"><button class="btn sm" data-a="askElse" data-id="${l.id}">Ask someone else</button></div>`:''}
-   ${last&&(l.status==='ready'||l.status==='changes')?`<div class="row mt"><button class="btn sm pri" data-a="dlLetter" data-id="${l.id}">Download letter${l.versions.length>1?' (version '+last.n+')':''}</button>${l.status==='ready'?`<button class="btn sm" data-a="askChange" data-id="${l.id}" ${l.changesUsed>=2?'disabled':''}>Ask for changes</button>`:''}</div><p class="hint mt">${l.status==='changes'?'You asked for changes. You can still download the current version while you wait.':''} You can ask for changes up to 2 times (${l.changesUsed} used).${l.changesUsed>=2?' For more changes, please contact the staff member directly.':''}</p>`:''}</div>`}).join('')}</div>`:'<div class="empty">No requests yet. Choose a staff member above to ask for your first letter.</div>'}</div>
+   ${last&&(l.status==='ready'||l.status==='changes')?`<div class="row mt"><button class="btn sm pri" data-a="dlLetter" data-id="${l.id}">Download letter${l.versions.length>1?' (version '+last.n+')':''}</button>${l.status==='ready'?`<button class="btn sm" data-a="askChange" data-id="${l.id}" ${l.changesUsed>=2?'disabled':''}>Ask for changes</button>`:''}</div><p class="hint mt">${l.status==='changes'?'You asked for changes. You can still download the current version while you wait.':''} You can ask for changes up to 2 times (${l.changesUsed||0} used).${(l.changesUsed||0)>=2?' For more changes, please contact the staff member directly.':''}</p>`:''}</div>`}).join('')}</div>`:'<div class="empty">No requests yet. Search above to ask for your first letter.</div>'}</div>
   ${F['chg.id']?changePanel():''}`}
-submits.askLetter=()=>{if(!need('ask_letter'))return;const u=me();ui.err={};const sid=fv('lt.staff'),due=fv('lt.due');
-  if(!sid)ui.err['lt.staff']='Choose who you would like to ask.';
-  if(!due)ui.err['lt.due']='Choose the date you need the letter by.';else if(new Date(due+'T23:59:59')<new Date())ui.err['lt.due']='Choose a date that is today or later.';
+
+live.recommenderSearch=()=>render();
+actions.pickRecommender=el=>{
+  F['lt.staff']=el.dataset.id;
+  F['lt.name']=el.dataset.name;
+  F['lt.email']=el.dataset.email;
+  F['lt.search']=el.dataset.name;
+  render();
+};
+actions.pickExternalRecommender=el=>{
+  F['lt.staff']='';
+  F['lt.email']=el.dataset.email;
+  F['lt.name']=el.dataset.email.split('@')[0];
+  F['lt.search']=el.dataset.email;
+  render();
+};
+actions.aiDraftRequestEmail=()=>{
+  const u=me();
+  const recName=fv('lt.name')||(fv('lt.staff')?user(fv('lt.staff'))?.name:'Professor / Supervisor');
+  const purp=fv('lt.purpose','Job application');
+  const existingNotes=fv('lt.note','');
+  toast('🤖 Gemini AI is drafting your formal recommendation request email...');
+  AuAPI.aiDraftEmail({
+    studentName: u.name,
+    studentProgramme: u.programme,
+    recipientName: recName,
+    purpose: purp,
+    notes: existingNotes,
+    deadline: fv('lt.due')
+  }).then(res=>{
+    if(res&&res.draft){
+      F['lt.note']=res.draft;
+      render();
+      toast('✨ Request email drafted! You can review or edit it before sending.');
+    }
+  }).catch(e=>{
+    toast('AI Draft failed: '+(e&&e.message||'Unknown error'),'bad');
+  });
+};
+
+submits.askLetter=()=>{
+  if(!need('ask_letter'))return;
+  const u=me();ui.err={};
+  const sid=fv('lt.staff');
+  const email=(fv('lt.email')||'').trim();
+  const name=(fv('lt.name')||'').trim();
+  const due=fv('lt.due');
+
+  if(!email||!/^\S+@\S+\.\S+$/.test(email)){
+    ui.err['lt.staff']='Enter a valid recommender email or select a staff member from the search.';
+  }
+  if(!due)ui.err['lt.due']='Choose the date you need the letter by.';
+  else if(new Date(due+'T23:59:59')<new Date())ui.err['lt.due']='Choose a date that is today or later.';
   if(Object.keys(ui.err).length)return fail();
+
   const g=k=>F['lt.s.'+k]!==undefined?F['lt.s.'+k]:true;
-  S.letters.push({id:uid('l'),sid:u.id,staffId:sid,purpose:fv('lt.purpose','Job application'),due:new Date(due+'T12:00:00').getTime(),note:fv('lt.note').trim(),share:{grades:g('grades'),ach:g('ach'),lead:g('lead'),extra:g('extra')},status:'waiting',reply:'',versions:[],changeRequests:[],changesUsed:0,draft:'',created:Date.now()});
-  save();['lt.staff','lt.due','lt.note'].forEach(k=>delete F[k]);render();toast('Request sent. You will see the reply here.')};
-actions.askElse=el=>{const l=S.letters.find(x=>x.id===el.dataset.id);F['lt.purpose']=l.purpose;F['lt.note']=l.note;F['lt.staff']='';render();setTimeout(()=>{const e=document.getElementById('f_lt_staff');if(e){e.scrollIntoView&&e.scrollIntoView({block:'center'});e.focus()}},30)};
+  const share={grades:g('grades'),ach:g('ach'),lead:g('lead'),extra:g('extra')};
+  const purpose=fv('lt.purpose','Job application');
+  const note=fv('lt.note','').trim();
+
+  toast('📨 Sending letter request and access code via email...');
+  if(AU_CONFIG.USE_BACKEND){
+    AuAPI.requestLetter({
+      recipientEmail: email,
+      recipientName: name||email.split('@')[0],
+      staffId: sid||null,
+      purpose: purpose,
+      due: due,
+      note: note,
+      share: share
+    }).then(res=>{
+      if(res&&res.letter){
+        S.letters.unshift(res.letter);
+        save();
+        ['lt.staff','lt.name','lt.email','lt.search','lt.due','lt.note'].forEach(k=>delete F[k]);
+        render();
+        toast('✓ Request sent successfully to '+email+' with 6-digit access code!');
+      }
+    }).catch(err=>{
+      toast('Could not send email: '+(err&&err.message||'Server error'),'bad');
+    });
+  } else {
+    // Offline / demo fallback
+    const code=String(Math.floor(100000+Math.random()*900000));
+    S.letters.push({
+      id:uid('l'),sid:u.id,staffId:sid||null,recipientEmail:email,recipientName:name||email.split('@')[0],
+      purpose:purpose,due:new Date(due+'T12:00:00').getTime(),note:note,share:share,
+      status:'waiting',reply:'',versions:[],changeRequests:[],changesUsed:0,draft:'',accessCode:code,created:Date.now()
+    });
+    save();['lt.staff','lt.name','lt.email','lt.search','lt.due','lt.note'].forEach(k=>delete F[k]);render();
+    toast('Request saved! Access code: '+code);
+  }
+};
+actions.askElse=el=>{const l=S.letters.find(x=>x.id===el.dataset.id);F['lt.purpose']=l.purpose;F['lt.note']=l.note;F['lt.staff']='';F['lt.search']='';render();setTimeout(()=>{const e=document.getElementById('lt_search');if(e){e.scrollIntoView&&e.scrollIntoView({block:'center'});e.focus()}},30)};
 
 /* ======================= STAFF ======================= */
 const taught=u=>(u.teaches||[]).map(user).filter(s=>s&&s.status==='active');
@@ -1114,6 +1268,448 @@ function pageFor(u,p){
     if(p[0]==='reports')return can('see_reports')?reportsPage(u):'<div class="empty">Your role cannot see reports.</div>'}
   return notFound();
 }
+
+/* ======================= PUBLIC PROFILE & GUEST PORTAL ======================= */
+function publicProfilePage(identifier){
+  document.title = 'Student Portfolio · ' + SCHOOL;
+  app.innerHTML = `<div class="shell" style="max-width:880px;margin:24px auto;padding:0 16px"><div class="card" style="text-align:center;padding:40px 20px"><div class="brand mb" style="justify-content:center">${logo()}</div><h2 class="mb">Loading Certified Portfolio...</h2><div class="muted small">Africa University Mutare, Zimbabwe</div></div></div>`;
+
+  if(!identifier){
+    app.innerHTML = `<div class="shell" style="max-width:800px;margin:32px auto;padding:0 16px"><div class="card"><div class="brand mb">${logo()}</div><h2>Portfolio Not Found</h2><p class="muted">No student identifier provided. Please check the link or contact the student.</p><div class="mt"><a class="btn pri" href="#/login">Go to Sign in</a></div></div></div>`;
+    return;
+  }
+
+  const renderProfile = data => {
+    const p = data.profile;
+    const s = data.settings || {};
+    app.innerHTML = `
+      <div class="shell" style="max-width:920px;margin:28px auto;padding:0 16px">
+        <header class="card mb" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px">
+          <div class="brand" style="margin:0">${logo()}<div><b>${esc(SCHOOL)}</b><div class="muted small">Verified Student Credential &amp; Portfolio</div></div></div>
+          <div class="row"><span class="chip ok">✓ Verified Student</span><a class="btn sm" href="#/login">Portal Sign In</a></div>
+        </header>
+
+        <div class="card mb">
+          <div class="hello" style="margin:0">
+            ${p.photo ? `<div class="avatar" style="--s:72px"><img src="${p.photo}" alt=""></div>` : avatar({name:p.name},72,false)}
+            <div>
+              <h1 style="font-size:1.8rem;margin-bottom:4px">${esc(p.name)}</h1>
+              <p class="muted" style="margin-bottom:6px">${esc(p.programme)} · Year ${p.year} · ${esc(p.schoolId)}</p>
+              <div class="small muted">${p.institution || 'Africa University, Mutare, Zimbabwe'}</div>
+            </div>
+          </div>
+          ${p.bio ? `<p class="mt" style="font-size:1.05rem;line-height:1.5">${esc(p.bio)}</p>` : ''}
+          ${p.skills && p.skills.length ? `<div class="tags mt">${p.skills.map(sk=>`<span class="tag">${esc(sk)}</span>`).join('')}</div>` : ''}
+          ${(p.linkedin || p.github) ? `<div class="row mt" style="gap:12px">${p.linkedin?`<a class="btn sm" href="${esc(p.linkedin)}" target="_blank" rel="noopener">LinkedIn Profile ↗</a>`:''}${p.github?`<a class="btn sm" href="${esc(p.github)}" target="_blank" rel="noopener">GitHub Portfolio ↗</a>`:''}</div>` : ''}
+        </div>
+
+        ${s.showGrades !== false && p.overall != null ? `
+          <div class="card mb">
+            <div class="row between"><h3>Academic Standing</h3><span class="chip ok">✓ Certified by Registry</span></div>
+            <div class="grid g2 mt">
+              <div class="stat"><div class="l">Cumulative GPA</div><div class="n" style="color:var(--ok)">${p.overall.toFixed(2)}</div><div class="d">4.0 Grading Scale</div></div>
+              <div class="stat"><div class="l">Progress</div><div class="n">${Math.min(100, Math.round((p.year * 30)/120 * 100))}%</div><div class="d">Toward Degree Completion</div></div>
+            </div>
+          </div>
+        ` : ''}
+
+        ${s.showProjects !== false && p.projects && p.projects.length ? `
+          <div class="card mb">
+            <h3 class="mb">Selected Projects (${p.projects.length})</h3>
+            <div class="stack">${p.projects.map(pj=>`
+              <div class="item" style="flex-direction:column;align-items:flex-start">
+                <div class="row between" style="width:100%"><b>${esc(pj.name)}</b><span class="chip info sm">${esc(pj.kind)}</span></div>
+                ${pj.goal ? `<p class="small mt" style="margin-bottom:4px"><b>Goal:</b> ${esc(pj.goal)}</p>` : ''}
+                ${pj.challenge ? `<p class="small" style="margin-bottom:4px"><b>Challenge &amp; Solution:</b> ${esc(pj.challenge)}</p>` : ''}
+                ${pj.result ? `<p class="small" style="margin-bottom:4px"><b>Result:</b> ${esc(pj.result)}</p>` : ''}
+                ${pj.link ? `<div class="mt"><a class="btn sm" href="${esc(pj.link)}" target="_blank" rel="noopener">View Project ↗</a></div>` : ''}
+              </div>
+            `).join('')}</div>
+          </div>
+        ` : ''}
+
+        ${s.showActs !== false && p.activities && p.activities.length ? `
+          <div class="card mb">
+            <h3 class="mb">Verified Leadership &amp; Activities (${p.activities.length})</h3>
+            <div class="stack">${p.activities.map(a=>`
+              <div class="item">
+                <div>
+                  <b>${esc(a.title)}</b>
+                  <div class="muted small">${esc(TYPE1[a.type]||a.type)} · Year ${a.year}${a.where ? ' · ' + esc(a.where) : ''}</div>
+                </div>
+                <span class="chip ok">✓ Verified${a.verifiedBy ? ' by ' + esc(a.verifiedBy) : ''}</span>
+              </div>
+            `).join('')}</div>
+          </div>
+        ` : ''}
+
+        ${s.showLetters === true && p.letters && p.letters.length ? `
+          <div class="card mb">
+            <h3 class="mb">Official Letters of Recommendation (${p.letters.length})</h3>
+            <div class="stack">${p.letters.map(lt=>`
+              <div class="card tint mb">
+                <div class="row between mb">
+                  <div><b>${esc(lt.purpose)}</b><div class="muted small">Certified on ${fmtD(lt.date)}</div></div>
+                  <span class="chip ok">✓ Officially Certified</span>
+                </div>
+                <div style="white-space:pre-wrap;font-family:serif;font-size:1.05rem;line-height:1.6;margin-bottom:12px">${esc(lt.body)}</div>
+                <div class="muted small" style="text-align:right">Signed: <b>${esc(lt.signedBy)}</b></div>
+              </div>
+            `).join('')}</div>
+          </div>
+        ` : ''}
+
+        <footer class="mt" style="text-align:center;padding:16px;color:var(--muted);font-size:0.85rem">
+          This record is digitally hosted by Africa University's Student Recommendation &amp; Portfolio System.
+        </footer>
+      </div>
+    `;
+  };
+
+  if(AU_CONFIG.USE_BACKEND){
+    AuAPI.getPublicProfile(identifier).then(res=>{
+      if(res && res.profile) renderProfile(res);
+      else app.innerHTML = `<div class="shell" style="max-width:800px;margin:32px auto;padding:0 16px"><div class="card"><h2>Profile Unavailable</h2><p class="muted">This profile is private or not active.</p><a class="btn pri mt" href="#/login">Go to Login</a></div></div>`;
+    }).catch(err=>{
+      app.innerHTML = `<div class="shell" style="max-width:800px;margin:32px auto;padding:0 16px"><div class="card"><h2>Profile Not Found</h2><p class="muted">${esc(err&&err.message||'This student has not made their profile public.')}</p><a class="btn pri mt" href="#/login">Go to Login</a></div></div>`;
+    });
+  } else {
+    // Demo fallback: Find student in local S
+    const st = S.users.find(x=>(x.shareSlug===identifier || x.schoolId===identifier || x.id===identifier) && x.role==='student');
+    if(!st) {
+      app.innerHTML = `<div class="shell" style="max-width:800px;margin:32px auto;padding:0 16px"><div class="card"><h2>Profile Not Found</h2><p class="muted">No matching student found.</p></div></div>`;
+      return;
+    }
+    renderProfile({
+      profile: {
+        name: st.name, schoolId: st.schoolId, programme: st.programme, year: st.year,
+        bio: st.bio, skills: st.skills, photo: st.photo, overall: st.overall,
+        projects: myProjects(st.id), activities: myActs(st.id).filter(a=>a.status==='verified')
+      },
+      settings: st.publicShare || { showGrades: true, showProjects: true, showActs: true, showLetters: false }
+    });
+  }
+}
+
+function guestPortalPage(parts){
+  const sub = parts[0]; // 'letter' or 'verify'
+  const token = parts[1] || '';
+  document.title = (sub==='letter' ? 'Recommendation Letter' : 'Activity Verification') + ' · ' + SCHOOL;
+
+  if(!sub || !token){
+    // Access Code Entry Form
+    app.innerHTML = `
+      <div class="shell" style="max-width:600px;margin:40px auto;padding:0 16px">
+        <div class="card">
+          <div class="brand mb" style="justify-content:center">${logo()}</div>
+          <h2 style="text-align:center" class="mb">External Access Portal</h2>
+          <p class="muted mb" style="text-align:center">Enter the 6-digit access code sent to your email by the student.</p>
+          <form data-submit="guestCodeAccess" novalidate>
+            <div class="field"><label for="g_code">6-Digit Access Code</label><input id="g_code" data-k="g.code" style="font-size:1.4rem;text-align:center;letter-spacing:4px" maxlength="8" placeholder="123456" required></div>
+            <div class="field"><label for="g_email">Your Email Address (optional confirmation)</label><input id="g_email" type="email" data-k="g.email" placeholder="recommender@example.com"></div>
+            <button class="btn pri" style="width:100%" type="submit">Unlock Candidate Request</button>
+          </form>
+          <div class="mt" style="text-align:center"><a class="muted small" href="#/login">Have an AU staff account? Sign in here</a></div>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  if(sub==='letter'){
+    renderGuestLetterPortal(token);
+  } else if(sub==='verify'){
+    renderGuestVerifyPortal(token);
+  }
+}
+
+submits.guestCodeAccess = f => {
+  const code = (fv('g.code')||'').trim();
+  const email = (fv('g.email')||'').trim();
+  if(!code){ toast('Enter your 6-digit access code.','bad'); return; }
+  toast('Verifying access code...');
+  AuAPI.getGuestLetter(code, code, email).then(res=>{
+    if(res && res.token){
+      location.hash = '#/guest/letter/' + res.token;
+    } else {
+      toast('Invalid or expired code. Please verify and try again.','bad');
+    }
+  }).catch(err=>{
+    toast(err&&err.message||'Invalid access code. Please check your email.','bad');
+  });
+};
+
+function renderGuestLetterPortal(token){
+  app.innerHTML = `<div class="shell" style="max-width:880px;margin:32px auto;padding:0 16px"><div class="card" style="text-align:center;padding:40px"><h2>Loading Candidate Information...</h2></div></div>`;
+  AuAPI.getGuestLetter(token).then(res=>{
+    const st = res.student;
+    const l = res.letter;
+    const projs = res.projects || [];
+    const acts = res.activities || [];
+    const draft = fv('g.letterBody', l.draft || `To whom it may concern,\n\nI am pleased to write this recommendation for ${st.name}, who is studying ${st.programme} at Africa University.\n\n[Add details of candidate's strengths and character]\n\nSincerely,\n${res.guestName}`);
+
+    app.innerHTML = `
+      <div class="shell" style="max-width:960px;margin:28px auto;padding:0 16px">
+        <header class="card mb" style="display:flex;align-items:center;justify-content:space-between">
+          <div class="brand" style="margin:0">${logo()}<div><b>${esc(SCHOOL)}</b><div class="muted small">Guest Recommender Portal</div></div></div>
+          <span class="chip ok">✓ Verified Access Token</span>
+        </header>
+
+        <div class="banner info mb">
+          <b>Welcome, ${esc(res.guestName)}</b><br>
+          ${esc(st.name)} has requested a recommendation letter for <b>${esc(l.purpose)}</b> (needed by ${fmtD(l.due)}).
+          ${l.note ? `<br><br><b>Student's Personal Note:</b> “${esc(l.note)}”` : ''}
+        </div>
+
+        <div class="grid g21">
+          <div class="card">
+            <h3>Write &amp; Certify Recommendation Letter</h3>
+            <div class="field">
+              <div class="row between mb">
+                <label for="g_body">Letter Body</label>
+                <button type="button" class="btn sm gold" data-a="guestAiDraft" data-token="${token}">✨ AI Draft with Gemini</button>
+              </div>
+              <textarea id="g_body" data-k="g.letterBody" rows="16" style="font-family:serif;font-size:1.05rem;line-height:1.5">${esc(draft)}</textarea>
+              <div class="hint">Use Gemini AI to quickly generate a formal, well-structured reference based on ${esc(first(st.name))}'s verified achievements.</div>
+            </div>
+            <div class="field">
+              <label for="g_signer">Your Full Name &amp; Title (Official Signature)</label>
+              <input id="g_signer" data-k="g.signer" value="${esc(fv('g.signer', res.guestName))}">
+            </div>
+            <div class="row mt">
+              <button class="btn pri" data-a="guestSubmitLetter" data-token="${token}">✓ Sign &amp; Submit Official Letter</button>
+              <button class="btn" data-a="guestSaveDraft" data-token="${token}">Save Draft</button>
+              <button class="btn danger" data-a="guestDeclineLetter" data-token="${token}">Decline</button>
+            </div>
+          </div>
+
+          <div class="stack">
+            <div class="card">
+              <h3>${esc(first(st.name))}'s Shared Record</h3>
+              <p class="muted small">${esc(st.programme)} · Year ${st.year}</p>
+              ${st.overall != null ? `<div class="stat mt"><div class="l">Cumulative GPA</div><div class="n" style="font-size:1.5rem;color:var(--ok)">${st.overall.toFixed(2)}</div><div class="d">✓ Certified</div></div>` : ''}
+              ${st.bio ? `<p class="mt small"><b>Bio:</b> ${esc(st.bio)}</p>` : ''}
+              ${st.skills && st.skills.length ? `<div class="tags mt">${st.skills.map(s=>`<span class="tag">${esc(s)}</span>`).join('')}</div>` : ''}
+            </div>
+
+            ${projs.length ? `
+              <div class="card">
+                <h4>Verified Projects (${projs.length})</h4>
+                <div class="stack mt">${projs.slice(0,3).map(p=>`
+                  <div class="small"><b>${esc(p.name)}</b><div class="muted">${esc(p.kind)}</div><p>${esc(p.result||p.goal||'')}</p></div>
+                `).join('')}</div>
+              </div>
+            ` : ''}
+
+            ${acts.length ? `
+              <div class="card">
+                <h4>Verified Activities (${acts.length})</h4>
+                <div class="stack mt">${acts.slice(0,4).map(a=>`
+                  <div class="small">✓ <b>${esc(a.title)}</b> <span class="muted">(${TYPE1[a.type]||a.type})</span></div>
+                `).join('')}</div>
+              </div>
+            ` : ''}
+          </div>
+        </div>
+      </div>
+    `;
+  }).catch(err=>{
+    app.innerHTML = `<div class="shell" style="max-width:800px;margin:32px auto;padding:0 16px"><div class="card"><h2>Link Expired or Invalid</h2><p class="muted">${esc(err&&err.message||'This request link has already been completed or has expired.')}</p><a class="btn pri mt" href="#/guest">Enter Code Again</a></div></div>`;
+  });
+}
+
+actions.guestAiDraft = el => {
+  const token = el.dataset.token;
+  toast('🤖 Gemini AI is drafting a personalized recommendation letter...');
+  AuAPI.getGuestLetter(token).then(ctx=>{
+    const st = ctx.student;
+    AuAPI.aiLetter({
+      student: st,
+      lecturer: { name: fv('g.signer') || ctx.guestName, dept: ctx.guestEmail },
+      purpose: ctx.letter.purpose,
+      specificNote: ctx.letter.note,
+      projects: ctx.projects,
+      activities: ctx.activities,
+      gpa: st.overall
+    }).then(res=>{
+      if(res && res.letter){
+        F['g.letterBody'] = res.letter;
+        renderGuestLetterPortal(token);
+        toast('✨ Recommendation letter drafted by Gemini AI! Review and sign.');
+      }
+    }).catch(e=>{
+      toast('AI generation failed: '+(e&&e.message||'Error'),'bad');
+    });
+  });
+};
+
+actions.guestSaveDraft = el => {
+  const token = el.dataset.token;
+  const body = fv('g.letterBody','').trim();
+  AuAPI.submitGuestLetter(token, { action: 'draft', body }).then(()=>{
+    toast('Draft saved. You can return to this link anytime.');
+  }).catch(e=>toast(e.message,'bad'));
+};
+
+actions.guestSubmitLetter = el => {
+  const token = el.dataset.token;
+  const body = fv('g.letterBody','').trim();
+  const signedBy = fv('g.signer','').trim();
+  if(!body){ toast('Letter body cannot be empty.','bad'); return; }
+  toast('Submitting and certifying recommendation letter...');
+  AuAPI.submitGuestLetter(token, { action: 'submit', body, signedBy }).then(()=>{
+    app.innerHTML = `
+      <div class="shell" style="max-width:700px;margin:40px auto;padding:0 16px">
+        <div class="card" style="text-align:center;padding:40px 20px">
+          <div class="brand mb" style="justify-content:center">${logo()}</div>
+          <h2 style="color:var(--ok)">✓ Recommendation Letter Submitted</h2>
+          <p class="mt" style="font-size:1.1rem">Thank you, <b>${esc(signedBy)}</b>. Your recommendation letter has been securely received, certified, and attached to the candidate's portfolio.</p>
+          <div class="mt"><a class="btn" href="#/login">Return to Home</a></div>
+        </div>
+      </div>
+    `;
+    toast('Letter submitted successfully!');
+  }).catch(e=>toast(e.message,'bad'));
+};
+
+actions.guestDeclineLetter = el => {
+  const token = el.dataset.token;
+  const reply = prompt('Please provide a brief reason for declining (e.g. scheduling conflict):');
+  if(reply === null) return;
+  AuAPI.submitGuestLetter(token, { action: 'decline', reply }).then(()=>{
+    app.innerHTML = `
+      <div class="shell" style="max-width:700px;margin:40px auto;padding:0 16px">
+        <div class="card" style="text-align:center;padding:40px 20px">
+          <h2>Request Declined</h2>
+          <p class="muted">You have declined this recommendation request. The student has been notified.</p>
+        </div>
+      </div>
+    `;
+  }).catch(e=>toast(e.message,'bad'));
+};
+
+function renderGuestVerifyPortal(token){
+  app.innerHTML = `<div class="shell" style="max-width:800px;margin:32px auto;padding:0 16px"><div class="card" style="text-align:center;padding:40px"><h2>Loading Activity Verification...</h2></div></div>`;
+  AuAPI.getGuestVerify(token).then(res=>{
+    const a = res.activity;
+    const st = res.student;
+    app.innerHTML = `
+      <div class="shell" style="max-width:760px;margin:32px auto;padding:0 16px">
+        <header class="card mb" style="display:flex;align-items:center;justify-content:space-between">
+          <div class="brand" style="margin:0">${logo()}<div><b>${esc(SCHOOL)}</b><div class="muted small">Activity Verification Portal</div></div></div>
+          <span class="chip ok">✓ Secure Verification Link</span>
+        </header>
+
+        <div class="card mb">
+          <h2>Verify Activity for ${esc(st.name)}</h2>
+          <p class="muted mb">${esc(st.programme)} · Year ${st.year} · ${esc(st.school_id||st.schoolId)}</p>
+
+          <div class="card tint mb">
+            <div class="row between">
+              <b>${esc(a.title)}</b>
+              <span class="chip info sm">${esc(TYPE1[a.type]||a.type)} · Year ${a.year}</span>
+            </div>
+            ${a.where ? `<div class="mt small"><b>Role / Location:</b> ${esc(a.where)}</div>` : ''}
+            ${a.evidence ? `<div class="mt small"><b>Attached Evidence:</b> ${esc(a.evidence)}</div>` : ''}
+          </div>
+
+          <div class="field">
+            <label for="gv_by">Your Full Name &amp; Title</label>
+            <input id="gv_by" data-k="gv.by" value="${esc(fv('gv.by', res.verifierName))}">
+          </div>
+
+          <div class="field">
+            <label for="gv_cm">Comment or Note (Optional)</label>
+            <input id="gv_cm" data-k="gv.cm" placeholder="Confirmed student participated and successfully completed their tenure.">
+          </div>
+
+          <div class="row mt">
+            <button class="btn pri" data-a="guestSubmitVerify" data-token="${token}" data-status="verified">✓ Confirm &amp; Verify Entry</button>
+            <button class="btn warn" data-a="guestSubmitVerify" data-token="${token}" data-status="evidence">Request More Evidence</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).catch(e=>{
+    app.innerHTML = `<div class="shell" style="max-width:700px;margin:32px auto;padding:0 16px"><div class="card"><h2>Verification Link Expired</h2><p class="muted">${esc(e&&e.message||'This verification link is invalid or already processed.')}</p></div></div>`;
+  });
+}
+
+actions.guestSubmitVerify = el => {
+  const token = el.dataset.token;
+  const status = el.dataset.status;
+  const by = fv('gv.by','').trim();
+  const comment = fv('gv.cm','').trim();
+  toast(status==='verified'?'Certifying activity verification...':'Sending note to student...');
+  AuAPI.submitGuestVerify(token, { status, comment, verifiedBy: by }).then(()=>{
+    app.innerHTML = `
+      <div class="shell" style="max-width:700px;margin:40px auto;padding:0 16px">
+        <div class="card" style="text-align:center;padding:40px 20px">
+          <div class="brand mb" style="justify-content:center">${logo()}</div>
+          <h2 style="color:var(--ok)">✓ Verification Submitted</h2>
+          <p class="mt" style="font-size:1.1rem">Thank you, <b>${esc(by)}</b>. The entry has been marked as <b>${status==='verified'?'Verified':'Evidence Requested'}</b>.</p>
+        </div>
+      </div>
+    `;
+    toast('Verification recorded successfully!');
+  }).catch(e=>toast(e.message,'bad'));
+};
+
+/* ---------- Public Sharing Privacy Settings Modal ---------- */
+actions.openPublicShare = () => {
+  const u = me();
+  const ps = u.publicShare || { enabled: false, showGrades: true, showTranscripts: true, showProjects: true, showActs: true, showLetters: false };
+  F['ps.en'] = ps.enabled;
+  F['ps.grades'] = ps.showGrades !== false;
+  F['ps.projs'] = ps.showProjects !== false;
+  F['ps.acts'] = ps.showActs !== false;
+  F['ps.letters'] = ps.showLetters === true;
+  const shareUrl = window.location.origin + window.location.pathname + '#/p/' + (u.shareSlug || u.schoolId);
+
+  openModal('🌐 Public Profile Sharing & Privacy Settings', () => `
+    <p class="muted mb">Share an unauthenticated link to your verified Africa University portfolio with employers, recruiters, and graduate schools.</p>
+    <div class="field">
+      <label>Public Link Status</label>
+      ${chk('ps.en', 'Enable Public Profile (anyone with the link can view)', F['ps.en'])}
+    </div>
+    <div class="field mt">
+      <label>Privacy Controls: What do you want visible publicly?</label>
+      ${chk('ps.grades', 'Cumulative Certified GPA & Progress', F['ps.grades'])}
+      ${chk('ps.projs', 'Portfolio Projects (Goal, Role, Tech & Live Links)', F['ps.projs'])}
+      ${chk('ps.acts', 'Verified Leadership, Achievements & Clubs', F['ps.acts'])}
+      ${chk('ps.letters', 'Official Certified Letters of Recommendation', F['ps.letters'])}
+    </div>
+    <div class="field mt">
+      <label>Your Public Share Link</label>
+      <div class="row" style="flex-wrap:nowrap">
+        <input id="ps_link_box" readonly value="${esc(shareUrl)}" style="background:var(--tint);font-family:monospace">
+        <button class="btn sm" data-a="copy" data-t="ps_link_box">Copy Link</button>
+        <a class="btn sm" href="${esc(shareUrl)}" target="_blank" rel="noopener">Preview ↗</a>
+      </div>
+    </div>
+    <div class="row mt">
+      <button class="btn pri" data-a="savePublicShare">Save Sharing Settings</button>
+      <button class="btn" data-a="closeModal">Cancel</button>
+    </div>
+  `, { wide: true });
+};
+
+actions.savePublicShare = () => {
+  const u = me();
+  u.publicShare = {
+    enabled: !!F['ps.en'],
+    showGrades: !!F['ps.grades'],
+    showTranscripts: true,
+    showProjects: !!F['ps.projs'],
+    showActs: !!F['ps.acts'],
+    showLetters: !!F['ps.letters']
+  };
+  u.shareSlug = u.shareSlug || u.schoolId;
+  save();
+  closeModal();
+  render();
+  toast('Public sharing privacy settings updated!');
+};
 
 /* ---------- start ---------- */
 window.__spw={render,go,get S(){return S},set SES(v){SES=v},get SES(){return SES},get F(){return F},actions,submits,seed,user,setS(v){S=v}};

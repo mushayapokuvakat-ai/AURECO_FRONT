@@ -114,6 +114,51 @@
     aiImprove: function (data) {
       return request(EP.aiImprove, { method: 'POST', body: data });
     },
+    aiDraftEmail: function (data) {
+      return request(EP.aiDraftEmail, { method: 'POST', body: data });
+    },
+    searchDirectory: function (q) {
+      return request((EP.directory || '/api/directory/search') + '?q=' + encodeURIComponent(q || ''));
+    },
+    requestLetter: function (data) {
+      return request(EP.letterRequest || '/api/letters/request', { method: 'POST', body: data });
+    },
+    requestVerification: function (data) {
+      return request(EP.verifyActivity || '/api/letters/verify-activity', { method: 'POST', body: data });
+    },
+    getGuestLetter: function (token, code, email) {
+      return request(EP.guestAccess || '/api/guest/letter/access', {
+        method: 'POST',
+        auth: false,
+        body: { token: token, accessCode: code, email: email }
+      });
+    },
+    submitGuestLetter: function (token, data) {
+      return request((EP.guestSubmit || '/api/guest/letter') + '/' + encodeURIComponent(token) + '/submit', {
+        method: 'POST',
+        auth: false,
+        body: data
+      });
+    },
+    getGuestVerify: function (token) {
+      return request((EP.guestVerify || '/api/guest/verify') + '/' + encodeURIComponent(token), {
+        method: 'GET',
+        auth: false
+      });
+    },
+    submitGuestVerify: function (token, data) {
+      return request((EP.guestVerify || '/api/guest/verify') + '/' + encodeURIComponent(token), {
+        method: 'POST',
+        auth: false,
+        body: data
+      });
+    },
+    getPublicProfile: function (identifier) {
+      return request((EP.publicProfile || '/api/public/profile') + '/' + encodeURIComponent(identifier), {
+        method: 'GET',
+        auth: false
+      });
+    },
     /* Runs once at start-up: if the person is already signed in, load their data first. */
     bootstrap: function () {
       if (!C.USE_BACKEND || !getToken()) return Promise.resolve();
