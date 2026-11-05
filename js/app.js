@@ -442,32 +442,38 @@ window.addEventListener('hashchange',()=>{F=Object.assign({},NEXT);NEXT={};ui={e
 
 /* ---------- render ---------- */
 function render(){
-  const y=window.scrollY||0;const u=me();const parts=location.hash.replace(/^#/,'').split('/').filter(Boolean);
-  document.documentElement.dataset.role=u?u.role:'student';
+  if(ui._rendering)return;
+  ui._rendering=true;
+  try{
+    const y=window.scrollY||0;const u=me();const parts=location.hash.replace(/^#/,'').split('/').filter(Boolean);
+    document.documentElement.dataset.role=u?u.role:'student';
 
-  // Handle Unauthenticated Public Profiles and Guest Portals
-  if(parts[0]==='p'){
-    publicProfilePage(parts[1]||'');
-    renderModal();
-    return;
-  }
-  if(parts[0]==='guest'){
-    guestPortalPage(parts.slice(1));
-    renderModal();
-    return;
-  }
+    // Handle Unauthenticated Public Profiles and Guest Portals
+    if(parts[0]==='p'){
+      publicProfilePage(parts[1]||'');
+      renderModal();
+      return;
+    }
+    if(parts[0]==='guest'){
+      guestPortalPage(parts.slice(1));
+      renderModal();
+      return;
+    }
 
-  if(!u){if(SES){SES=null;saveSes()}
-    if(parts[0]!=='signup'&&parts[0]!=='login'){location.replace('#/login');return}
-    app.innerHTML=parts[0]==='signup'?signupPage():loginPage();document.title=(parts[0]==='signup'?'Create your account':'Sign in')+' · '+SCHOOL;
-  }else{
-    if(parts[0]!==u.role){location.replace('#/'+u.role);return}
-    app.innerHTML=shell(u,pageFor(u,parts.slice(1)));document.title=SIDE_TITLE[u.role]+' · '+SCHOOL;
+    if(!u){if(SES){SES=null;saveSes()}
+      if(parts[0]!=='signup'&&parts[0]!=='login'){location.replace('#/login');return}
+      app.innerHTML=parts[0]==='signup'?signupPage():loginPage();document.title=(parts[0]==='signup'?'Create your account':'Sign in')+' · '+SCHOOL;
+    }else{
+      if(parts[0]!==u.role){location.replace('#/'+u.role);return}
+      app.innerHTML=shell(u,pageFor(u,parts.slice(1)));document.title=SIDE_TITLE[u.role]+' · '+SCHOOL;
+    }
+    renderModal();
+    Object.keys(live).forEach(k=>{try{live[k]()}catch(e){}});
+    window.scrollTo(0,ui.focusErr?y:y);
+    if(ui.focusErr){ui.focusErr=false;const f=document.querySelector('.has-err input,.has-err select,.has-err textarea');if(f&&f.focus)try{f.focus()}catch(e){}}
+  }finally{
+    ui._rendering=false;
   }
-  renderModal();
-  Object.keys(live).forEach(k=>{try{live[k]()}catch(e){}});
-  window.scrollTo(0,ui.focusErr?y:y);
-  if(ui.focusErr){ui.focusErr=false;const f=document.querySelector('.has-err input,.has-err select,.has-err textarea');if(f&&f.focus)try{f.focus()}catch(e){}}
 }
 
 /* ======================= STUDENT ======================= */
@@ -686,7 +692,13 @@ function activityForm(u){
    </div>
    <div class="row"><button class="btn pri" type="submit">Save activity</button><button type="button" class="btn" data-a="toggleAdd">Cancel</button></div>
    <p class="hint mt">A teacher or designated verifier will check and verify it.</p></form></div>`}
-live.verifierSearch=()=>render();
+live.verifierSearch=()=>{
+  const el=document.getElementById('ver_results');
+  if(!el)return;
+  const verQuery=(fv('act.vsearch')||'').trim().toLowerCase();
+  const verResults=verQuery.length>=2?(S.users.filter(x=>(x.role==='staff'||x.role==='supervisor')&&x.status==='active'&&(x.name.toLowerCase().includes(verQuery)||(x.email&&x.email.toLowerCase().includes(verQuery))))):[];
+  el.innerHTML=verQuery.length>=2?`<div class="list">${verResults.map(s=>`<div class="item" style="cursor:pointer;padding:4px 8px" data-a="pickVerifier" data-name="${esc(s.name)}" data-email="${esc(s.email)}"><div><b>${esc(s.name)}</b> <span class="muted small">${esc(s.dept||s.company||'AU')} · ${esc(s.email)}</span></div><button type="button" class="btn sm">Select</button></div>`).join('')}${/^\S+@\S+\.\S+$/.test(verQuery)?`<div class="item" style="cursor:pointer;padding:4px 8px;background:var(--tint)" data-a="pickVerifier" data-name="${esc(verQuery.split('@')[0])}" data-email="${esc(verQuery)}"><div><b>Invite Verifier: ${esc(verQuery)}</b><div class="muted small">We'll email them an activity verification link &amp; 6-digit access code.</div></div><button type="button" class="btn sm pri">Use this email</button></div>`:''}</div>`:'';
+};
 actions.pickVerifier=el=>{F['act.vemail']=el.dataset.email;F['act.vname']=el.dataset.name;F['act.vsearch']=el.dataset.email;render()};
 actions.clearVerifier=()=>{delete F['act.vemail'];delete F['act.vname'];delete F['act.vsearch'];render()};
 actions.toggleAdd=()=>{F['act.add']=!fv('act.add',false);ui.err={};render()};
@@ -759,7 +771,13 @@ function lettersPage(u){
    ${last&&(l.status==='ready'||l.status==='changes')?`<div class="row mt"><button class="btn sm pri" data-a="dlLetter" data-id="${l.id}">Download letter${l.versions.length>1?' (version '+last.n+')':''}</button>${l.status==='ready'?`<button class="btn sm" data-a="askChange" data-id="${l.id}" ${l.changesUsed>=2?'disabled':''}>Ask for changes</button>`:''}</div><p class="hint mt">${l.status==='changes'?'You asked for changes. You can still download the current version while you wait.':''} You can ask for changes up to 2 times (${l.changesUsed||0} used).${(l.changesUsed||0)>=2?' For more changes, please contact the staff member directly.':''}</p>`:''}</div>`}).join('')}</div>`:'<div class="empty">No requests yet. Search above to ask for your first letter.</div>'}</div>
   ${F['chg.id']?changePanel():''}`}
 
-live.recommenderSearch=()=>render();
+live.recommenderSearch=()=>{
+  const el=document.getElementById('recommender_results');
+  if(!el)return;
+  const query=(fv('lt.search')||'').trim().toLowerCase();
+  const dirResults=query.length>=2?(S.users.filter(x=>(x.role==='staff'||x.role==='supervisor')&&x.status==='active'&&(x.name.toLowerCase().includes(query)||(x.email&&x.email.toLowerCase().includes(query))))):[];
+  el.innerHTML=query.length>=2?`<div class="list">${dirResults.map(s=>`<div class="item" style="cursor:pointer;padding:6px 10px" data-a="pickRecommender" data-id="${s.id}" data-name="${esc(s.name)}" data-email="${esc(s.email)}"><div><b>${esc(s.name)}</b> <span class="chip info sm" style="font-size:0.75rem">${esc(s.role)}</span><div class="muted small">${esc(s.dept||s.company||'Africa University')} · ${esc(s.email)}</div></div><button type="button" class="btn sm">Select</button></div>`).join('')}${/^\S+@\S+\.\S+$/.test(query)?`<div class="item" style="cursor:pointer;padding:6px 10px;background:var(--tint)" data-a="pickExternalRecommender" data-email="${esc(query)}"><div><b>Invite External: ${esc(query)}</b><div class="muted small">Person has no AU account? We'll email them a secure portal link &amp; access code.</div></div><button type="button" class="btn sm pri">Use this email</button></div>`:''}</div>`:'';
+};
 actions.pickRecommender=el=>{
   F['lt.staff']=el.dataset.id;
   F['lt.name']=el.dataset.name;
