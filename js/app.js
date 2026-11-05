@@ -806,10 +806,13 @@ actions.aiDraftRequestEmail=()=>{
     notes: existingNotes,
     deadline: fv('lt.due')
   }).then(res=>{
-    if(res&&res.draft){
-      F['lt.note']=res.draft;
+    const draftedText = (res && (res.draft || res.emailText)) || '';
+    if(draftedText){
+      F['lt.note']=draftedText;
       render();
       toast('✨ Request email drafted! You can review or edit it before sending.');
+    } else {
+      toast('AI returned an empty response. Please try again.', 'bad');
     }
   }).catch(e=>{
     toast('AI Draft failed: '+(e&&e.message||'Unknown error'),'bad');
